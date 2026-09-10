@@ -1,0 +1,12 @@
+{
+  "srt_content": "1\n00:00:00,000 --> 00:00:03,000\nMùa tựu trường rạng rỡ cùng áo sơ mi học sinh cao cấp.\n\n2\n00:00:03,000 --> 00:00:06,000\nChất liệu cotton lụa thoáng mát, chống nhăn suốt cả ngày dài.\n\n3\n00:00:06,000 --> 00:00:09,000\nForm dáng chuẩn chỉnh, tự tin tỏa sáng mọi khoảnh khắc học đường!",
+  "image_prompts": "[IMAGE]\n00:00:00,000 - 00:00:03,000\nCommercial product photo of a crisp white Vietnamese school uniform shirt neatly laid on a minimal surface, bright natural lighting, vertical 9:16\n\n[IMAGE]\n00:00:03,000 - 00:00:06,000\nClose-up shot showing the soft breathable cotton fabric texture and neat collar stitching of the white student shirt, vertical 9:16\n\n[IMAGE]\n00:00:06,000 - 00:00:09,000\nA charming Vietnamese female high school student in a crisp white uniform smiling warmly on a sunny school campus, vertical 9:16",
+  "vo_notes": {
+    "speed": 140,
+    "emotion": "cheerful, energetic and inspiring for back-to-school season"
+  },
+  "metadata": {
+    "title": "Áo Sơ Mi Học Sinh Tựu Trường",
+    "description": "Video ngắn giới thiệu áo đồng phục học sinh thoáng mát chất lượng cao."
+  }
+}
