@@ -360,7 +360,7 @@ def render_project(project_dir: Path, output_path: Path, hypit_bin: str = "hypit
     build_out = _run([hypit_bin, "build", run, *runtime, "--follow", "--json"], project_dir)
     build_id = _parse_build_id(build_out)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    _run([hypit_bin, "get", build_id, *runtime, "--output", "final.video",
+    _run([hypit_bin, "get", build_id, "--output", "final.video",
           "--to", str(output_path)], project_dir)
     return output_path
 
