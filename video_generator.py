@@ -225,6 +225,29 @@ Tuyệt đối không giải thích, chỉ trả về JSON."""
             "Đặt mua ngay hôm nay để nhận ưu đãi tốt nhất!"
         ]
 
+    def _tts_sentence(self, sent: str, mp3_path: Path) -> AudioSegment:
+        """Synthesize one sentence with gTTS (auto vi/en) and return it as audio."""
+        is_vi = any(c in sent for c in "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ")
+        gTTS(text=sent, lang="vi" if is_vi else "en", slow=False).save(str(mp3_path))
+        audio = AudioSegment.from_mp3(str(mp3_path))
+        try:
+            mp3_path.unlink()
+        except Exception:
+            pass
+        return audio
+
+    def generate_voiceover_parts(self, sentences: List[str]) -> List[str]:
+        """Generate one WAV per sentence (Hypit aligns each sentence as its own Take)."""
+        print("\n=== Generating Per-Sentence Voiceover (Hypit) ===")
+        parts = []
+        for i, sent in enumerate(sentences):
+            audio = self._tts_sentence(sent, self.temp_dir / f"sent_{i}.mp3")
+            wav_path = self.temp_dir / f"vo_part_{i:02d}.wav"
+            audio.export(str(wav_path), format="wav")
+            parts.append(str(wav_path))
+            print(f"  [{len(audio) / 1000.0:05.2f}s] {sent}")
+        return parts
+
     def generate_voiceover_from_sentences(self, sentences: List[str]) -> Tuple[str, List[Dict]]:
         """
         Generate voiceover sentence-by-sentence and calculate exact subtitle timing automatically.
@@ -241,15 +264,7 @@ Tuyệt đối không giải thích, chỉ trả về JSON."""
             if not sent:
                 continue
 
-            temp_path = self.temp_dir / f"sent_{i}.mp3"
-            # Auto-detect language (Vietnamese diacritics check)
-            is_vi = any(c in sent for c in "àáảãạăằắẳẵặâầấẩẫậèéẻẽẹêềếểễệìíỉĩịòóỏõọôồốổỗộơờớởỡợùúủũụưừứửữựỳýỷỹỵđÀÁẢÃẠĂẰẮẲẴẶÂẦẤẨẪẬÈÉẺẼẸÊỀẾỂỄỆÌÍỈĨỊÒÓỎÕỌÔỒỐỔỖỘƠỜỚỞỠỢÙÚỦŨỤƯỪỨỬỮỰỲÝỶỸỴĐ")
-            lang = "vi" if is_vi else "en"
-
-            tts = gTTS(text=sent, lang=lang, slow=False)
-            tts.save(str(temp_path))
-
-            sent_audio = AudioSegment.from_mp3(str(temp_path))
+            sent_audio = self._tts_sentence(sent, self.temp_dir / f"sent_{i}.mp3")
             duration_sec = len(sent_audio) / 1000.0
 
             start_t = round(current_time, 2)
@@ -266,11 +281,6 @@ Tuyệt đối không giải thích, chỉ trả về JSON."""
             combined_audio += sent_audio
             combined_audio += AudioSegment.silent(duration=int(pause_between * 1000))
             current_time = end_t + pause_between
-
-            try:
-                temp_path.unlink()
-            except Exception:
-                pass
 
         audio_path = self.temp_dir / "master_voiceover.wav"
         combined_audio.export(str(audio_path), format="wav")
@@ -466,6 +476,59 @@ Return ONLY valid JSON."""
         print(f"\n✓ Video saved successfully: {output_path}")
         return str(output_path)
 
+    def assemble_hypit_video(
+        self,
+        images: List[str],
+        sentences: List[str],
+        output_name: str,
+        music_mood: str = "cheerful, energetic",
+        custom_music_path: str = None,
+        hypit_bin: str = None,
+        hypit_runtime: str = None,
+        language: str = "vi",
+    ) -> str:
+        """Export a Hypit project (word-aligned karaoke captions) and render it with the hypit CLI."""
+        import hypit_export
+
+        print(f"\n{'='*60}")
+        print(f"🎬 Assembling Hypit Video: {output_name}")
+        print(f"{'='*60}")
+
+        hypit = hypit_export.find_hypit(hypit_bin)
+        if not hypit:
+            raise hypit_export.HypitError(
+                "hypit executable not found. Install it (npm i -g @hypit/hypit) or pass --hypit-bin / set HYPIT_BIN.")
+
+        voice_parts = self.generate_voiceover_parts(sentences)
+
+        if custom_music_path and os.path.exists(custom_music_path):
+            music_path = custom_music_path
+            music_gain = 0.18
+        else:
+            # Estimate program length: voice parts plus the gap Hypit inserts between sentences.
+            total = sum(len(AudioSegment.from_wav(p)) for p in voice_parts) / 1000.0 + 0.25 * len(voice_parts)
+            print(f"Generating background music (mood: {music_mood})...")
+            music_path = self.generate_background_music({"emotion": music_mood}, total)
+            music_gain = 0.2
+
+        project_dir = self.output_dir / f"{output_name}_hypit"
+        hypit_export.export_project(
+            project_dir,
+            images=images,
+            sentences=sentences,
+            voice_parts=voice_parts,
+            music_path=music_path,
+            music_gain=music_gain,
+            language=language,
+            runtime_profile=hypit_runtime,
+        )
+        print(f"✓ Hypit project written: {project_dir}")
+
+        output_path = self.output_dir / f"{output_name}.mp4"
+        hypit_export.render_project(project_dir, output_path, hypit_bin=hypit)
+        print(f"\n✓ Video saved successfully: {output_path}")
+        return str(output_path)
+
     def process_fast(
         self,
         images: List[str],
@@ -474,6 +537,9 @@ Return ONLY valid JSON."""
         output_name: str = None,
         music_mood: str = "cheerful, energetic",
         music_path: str = None,
+        renderer: str = "moviepy",
+        hypit_bin: str = None,
+        hypit_runtime: str = None,
     ) -> str:
         """Main entry point for fast image-to-video workflow."""
         if not images:
@@ -490,13 +556,30 @@ Return ONLY valid JSON."""
         if not output_name:
             output_name = f"fast_video_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
-        video_path = self.assemble_fast_video(
-            images=images,
-            sentences=sentences,
-            output_name=output_name,
-            music_mood=music_mood,
-            custom_music_path=music_path,
-        )
+        video_path = None
+        if renderer == "hypit":
+            import hypit_export
+            try:
+                video_path = self.assemble_hypit_video(
+                    images=images,
+                    sentences=sentences,
+                    output_name=output_name,
+                    music_mood=music_mood,
+                    custom_music_path=music_path,
+                    hypit_bin=hypit_bin,
+                    hypit_runtime=hypit_runtime,
+                )
+            except hypit_export.HypitError as e:
+                print(f"\n⚠ Hypit render failed, falling back to MoviePy:\n{e}")
+
+        if video_path is None:
+            video_path = self.assemble_fast_video(
+                images=images,
+                sentences=sentences,
+                output_name=output_name,
+                music_mood=music_mood,
+                custom_music_path=music_path,
+            )
 
         self._cleanup_temp()
         return video_path
@@ -635,7 +718,7 @@ Return ONLY valid JSON."""
         )
         return str(output_path)
 
-    def process(self, json_input: str, output_name: str = None) -> str:
+    def process(self, json_input: str, output_name: str = None, **render_options) -> str:
         """Process JSON input (auto-detects fast image format vs legacy SRT format)."""
         if output_name is None:
             output_name = f"video_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
@@ -662,6 +745,7 @@ Return ONLY valid JSON."""
                 output_name=output_name,
                 music_mood=music_mood,
                 music_path=music_path,
+                **render_options,
             )
         else:
             # Legacy SRT format
@@ -720,8 +804,18 @@ def main():
     parser.add_argument("--mood", default="cheerful, energetic", help="Music mood for procedural audio")
     parser.add_argument("-o", "--output", dest="cli_output", default=None, help="Output video name")
     parser.add_argument("--create-sample", action="store_true", help="Generate sample fast_input.json")
+    parser.add_argument("--renderer", choices=["moviepy", "hypit"], default="moviepy",
+                        help="moviepy (default) or hypit (word-aligned karaoke captions; falls back to moviepy on failure)")
+    parser.add_argument("--hypit-bin", default=None, help="Path to the hypit executable (default: $HYPIT_BIN or PATH)")
+    parser.add_argument("--hypit-runtime", default=None,
+                        help="Hypit Runtime Profile to use instead of the generated all-local one (e.g. a HypiHub profile)")
 
     args = parser.parse_args()
+    render_options = {
+        "renderer": args.renderer,
+        "hypit_bin": args.hypit_bin,
+        "hypit_runtime": args.hypit_runtime,
+    }
 
     if args.create_sample:
         create_example_fast_json()
@@ -739,6 +833,7 @@ def main():
             output_name=out_name,
             music_mood=args.mood,
             music_path=args.music,
+            **render_options,
         )
         print(f"\n🎉 DONE: {video_path}")
         return
@@ -746,7 +841,7 @@ def main():
     # Priority 2: JSON file
     if args.input_file:
         out_name = args.cli_output or args.output_name
-        video_path = generator.process(args.input_file, out_name)
+        video_path = generator.process(args.input_file, out_name, **render_options)
         print(f"\n🎉 DONE: {video_path}")
         return
 

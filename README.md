@@ -90,6 +90,40 @@ The input JSON file has the following structure:
 -   `vo_notes`: An object containing notes for the voiceover, such as speed and emotion.
 -   `metadata`: An object containing metadata for the video, such as the title and description.
 
+## Hypit Renderer (optional)
+
+`--renderer hypit` replaces the MoviePy assembly step with [Hypit](https://github.com/hypit-ai/hypit).
+Python still writes the script, voiceover and music; `hypit_export.py` turns them into a Hypit
+project and renders it. You get WhisperX word-level alignment, karaoke captions that highlight the
+word being spoken, Ken Burns motion on each image and Chromium rendering.
+
+```bash
+npm i -g @hypit/hypit                      # Node 22+; once per machine
+python video_generator.py sample_ao_hoc_sinh/fast_input.json ao_hoc_sinh --renderer hypit
+```
+
+The first run writes `output/<name>_hypit/` (`main.svml`, `recipes.svs`, `runs/final.svrun`,
+`hypit.runtime.json`, `assets/`) and runs `hypit check`, `hypit build` and `hypit get`. The
+generated Runtime Profile is fully local: local WhisperX (`small`, CPU) for Vietnamese alignment,
+local ffmpeg and a headless Chrome renderer. Prepare it once from the project directory:
+
+```bash
+cd output/ao_hoc_sinh_hypit
+hypit runtime up --runtime hypit.runtime.json   # installs Chrome Headless Shell + WhisperX venv
+```
+
+Use `--hypit-runtime my.runtime.json` to use another profile instead, such as HypiHub-hosted
+WhisperX. Set `--hypit-bin` or `HYPIT_BIN` when `hypit` is not on `PATH`. If Hypit is missing or a
+build fails, the generator prints the error and falls back to MoviePy.
+
+Notes:
+- Each sentence becomes one Script Segment and one voiceover Take; images are spread across
+  sentence groups, so extra images beyond the sentence count are dropped.
+- Captions use Noto Sans SC, the only `@hypit/fonts-open` sans face that ships the Vietnamese glyph
+  range (the Latin faces load only the basic Latin subset).
+- Hypit license: free for your own organization's work, including client work. Running it as a
+  multi-tenant service or reselling it needs a commercial license from Hypit.AI.
+
 ## Docker Integration
 
 The `docker-compose.yml` file defines two services:
