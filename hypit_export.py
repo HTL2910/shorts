@@ -26,7 +26,8 @@ from PIL import Image, ImageOps
 
 CANVAS_W, CANVAS_H = 1080, 1920
 FRAME_RATE = 30
-SENTENCE_GAP = "250ms"
+# Gaps must land on whole frames at FRAME_RATE (250ms would be 7.5 frames).
+SENTENCE_GAP = "8f"
 
 # Latin faces in @hypit/fonts-open load only the basic Latin subset, which lacks
 # Vietnamese diacritics. Noto Sans SC ships Fontsource's complete Unicode-range
@@ -365,16 +366,23 @@ def render_project(project_dir: Path, output_path: Path, hypit_bin: str = "hypit
 
 
 def _parse_build_id(stdout: str) -> str:
-    """Find the build id in `hypit build --json` output (one or more JSON documents)."""
-    for line in reversed(stdout.strip().splitlines()):
+    """Find the build id in `hypit build --json` output (a JSON document, possibly followed by progress lines)."""
+    decoder = json.JSONDecoder()
+    start = stdout.find("{")
+    while start != -1:
         try:
-            doc = json.loads(line)
+            doc, _ = decoder.raw_decode(stdout, start)
         except ValueError:
+            start = stdout.find("{", start + 1)
             continue
+        build = doc.get("build") if isinstance(doc, dict) else None
+        if isinstance(build, dict) and isinstance(build.get("id"), str):
+            return build["id"]
         found = _find_key(doc, ("buildId", "build_id", "id"))
         if found:
             return found
-    match = re.search(r"\bbuild[_-]?id\W+([A-Za-z0-9_-]+)", stdout, re.IGNORECASE)
+        start = stdout.find("{", start + 1)
+    match = re.search(r"\b(bld_[A-Za-z0-9_]+)", stdout)
     if match:
         return match.group(1)
     raise HypitError(f"Could not find a build id in hypit output:\n{stdout}")
